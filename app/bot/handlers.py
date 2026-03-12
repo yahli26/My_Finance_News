@@ -28,6 +28,7 @@ async def _earnings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         lines = ["*Upcoming Earnings*"]
+        lines.append("_⚠ Dates marked (est.) are API estimates and may be inaccurate._")
         for item in earnings:
             symbol = item.get("symbol", "?")
             raw_date = item.get("date", "?")
@@ -36,7 +37,12 @@ async def _earnings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 formatted_date = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%d/%m/%Y")
             except (ValueError, TypeError):
                 formatted_date = raw_date
-            lines.append(f"Ticker: {symbol}, report on: {formatted_date}")
+
+            # Finnhub may include an epsEstimate field; the presence of a
+            # non-None value is a weak signal the date is estimated rather
+            # than confirmed by the company.
+            estimate_tag = " _(est.)_" if item.get("epsEstimate") is not None else ""
+            lines.append(f"Ticker: {symbol}, report on: {formatted_date}{estimate_tag}")
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
