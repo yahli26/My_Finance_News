@@ -42,10 +42,11 @@ def fetch_news(api_key: str, tickers: list[str]) -> list[dict]:
 def fetch_earnings_calendar(api_key: str, tickers: list[str]) -> list[dict]:
     """Fetch upcoming earnings dates for portfolio tickers, sorted chronologically."""
     today = datetime.now().strftime("%Y-%m-%d")
+    future = (datetime.now() + timedelta(days=100)).strftime("%Y-%m-%d")
 
     response = requests.get(
         f"{FINNHUB_BASE_URL}/calendar/earnings",
-        params={"token": api_key},
+        params={"from": today, "to": future, "token": api_key},
         timeout=30,
     )
     response.raise_for_status()
