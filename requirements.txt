@@ -1,0 +1,15 @@
+# Web server
+fastapi>=0.115.0
+uvicorn>=0.34.0
+
+# Telegram bot (job-queue extra enables APScheduler-based scheduling)
+python-telegram-bot[job-queue]>=21.0
+
+# Environment / config
+python-dotenv==1.2.2
+
+# HTTP client
+requests==2.32.5
+
+# Google Gemini
+google-generativeai==0.8.6
