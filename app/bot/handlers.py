@@ -30,8 +30,13 @@ async def _earnings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         lines = ["*Upcoming Earnings*"]
         for item in earnings:
             symbol = item.get("symbol", "?")
-            date = item.get("date", "?")
-            lines.append(f"• {symbol}: {date}")
+            raw_date = item.get("date", "?")
+            try:
+                from datetime import datetime
+                formatted_date = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+            except (ValueError, TypeError):
+                formatted_date = raw_date
+            lines.append(f"Ticker: {symbol}, report on: {formatted_date}")
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
