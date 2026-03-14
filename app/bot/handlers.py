@@ -1,11 +1,11 @@
 import logging
+from datetime import datetime
 
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 
-from app.config import FINNHUB_API_KEY, TELEGRAM_CHAT_ID
-from app.services.finnhub import fetch_earnings_calendar
-from app.services.ibkr import get_portfolio_tickers
+from app.config import TELEGRAM_CHAT_ID
+from app.services.yahoo import get_earnings_cache
 
 logger = logging.getLogger(__name__)
 
@@ -20,35 +20,28 @@ async def _earnings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     logger.info("Earnings command received from chat %s", sender_id)
 
     try:
-        tickers = get_portfolio_tickers()
-        earnings = fetch_earnings_calendar(FINNHUB_API_KEY, tickers)
+        earnings = get_earnings_cache()
 
         if not earnings:
-            await update.message.reply_text("No upcoming earnings found for your portfolio.")
+            await update.message.reply_text(
+                "Earnings cache is warming up. Please try again in a minute."
+            )
             return
 
         lines = ["*Upcoming Earnings*"]
-        lines.append("_⚠ Dates marked (est.) are API estimates and may be inaccurate._")
-        for item in earnings:
-            symbol = item.get("symbol", "?")
-            raw_date = item.get("date", "?")
+        for symbol, raw_date in sorted(earnings.items(), key=lambda item: item[1]):
             try:
-                from datetime import datetime
                 formatted_date = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%d/%m/%Y")
             except (ValueError, TypeError):
                 formatted_date = raw_date
 
-            # Finnhub may include an epsEstimate field; the presence of a
-            # non-None value is a weak signal the date is estimated rather
-            # than confirmed by the company.
-            estimate_tag = " _(est.)_" if item.get("epsEstimate") is not None else ""
-            lines.append(f"Ticker: {symbol}, report on: {formatted_date}{estimate_tag}")
+            lines.append(f"Ticker {symbol} - Earnings date: {formatted_date}")
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     except Exception:
-        logger.exception("Failed to fetch earnings calendar.")
-        await update.message.reply_text("Failed to fetch earnings calendar. Check server logs.")
+        logger.exception("Failed to read earnings cache.")
+        await update.message.reply_text("Failed to read earnings cache. Check server logs.")
 
 
 # Matches any message whose full text (case-insensitive) is "reports" or "earnings"

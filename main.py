@@ -9,7 +9,7 @@ from telegram.ext import Application
 
 from app.config import TELEGRAM_TOKEN
 from app.bot.handlers import earnings_handler
-from app.bot.jobs import send_morning_news
+from app.bot.jobs import refresh_earnings_cache_job, send_morning_news
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -40,8 +40,15 @@ async def lifespan(app: FastAPI):
         time=time(4, 0, 0, tzinfo=timezone.utc),
     )
 
+    # Refresh earnings cache daily at 06:05 IST (= 04:05 UTC)
+    bot_app.job_queue.run_daily(
+        refresh_earnings_cache_job,
+        time=time(4, 5, 0, tzinfo=timezone.utc),
+    )
+
     await bot_app.initialize()
     await bot_app.start()
+    await refresh_earnings_cache_job(None)
     logger.info("Telegram bot started.")
 
     yield  # server is live
