@@ -34,16 +34,16 @@ async def lifespan(app: FastAPI):
     # Register message handlers
     bot_app.add_handler(earnings_handler)
 
-    # Schedule the daily morning-news digest at 06:00 IST (= 04:00 UTC)
+    # Schedule the daily morning-news digest at 06:29 IST (= 04:29 UTC)
     bot_app.job_queue.run_daily(
         send_morning_news,
-        time=time(4, 0, 0, tzinfo=timezone.utc),
+        time=time(4, 29, 0, tzinfo=timezone.utc),
     )
 
-    # Refresh earnings cache daily at 06:05 IST (= 04:05 UTC)
+    # Refresh earnings cache daily at 06:04 IST (= 04:04 UTC)
     bot_app.job_queue.run_daily(
         refresh_earnings_cache_job,
-        time=time(4, 5, 0, tzinfo=timezone.utc),
+        time=time(4, 4, 0, tzinfo=timezone.utc),
     )
 
     await bot_app.initialize()

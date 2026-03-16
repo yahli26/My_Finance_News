@@ -98,19 +98,27 @@ def fetch_news(api_key: str, tickers: list[str]) -> list[dict]:
     aggregated_news: list[dict] = []
 
     for ticker in tickers:
-        response = requests.get(
-            f"{FINNHUB_BASE_URL}/company-news",
-            params={
-                "symbol": ticker,
-                "from": from_date,
-                "to": today,
-                "token": api_key,
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
+        try:
+            response = requests.get(
+                f"{FINNHUB_BASE_URL}/company-news",
+                params={
+                    "symbol": ticker,
+                    "from": from_date,
+                    "to": today,
+                    "token": api_key,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            articles = response.json()
+        except requests.RequestException:
+            logger.warning(
+                "Failed to fetch Finnhub news for ticker '%s'; skipping and continuing.",
+                ticker,
+                exc_info=True,
+            )
+            continue
 
-        articles = response.json()
         for article in articles:
             article["ticker"] = ticker
 
