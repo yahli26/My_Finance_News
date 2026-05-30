@@ -9,6 +9,7 @@ import yfinance as yf
 logger = logging.getLogger(__name__)
 
 _earnings_cache: dict[str, str] = {}
+YAHOO_EARNINGS_TIMEOUT_SECONDS = 10
 
 
 def _normalize_date(value: Any) -> str | None:
@@ -87,11 +88,16 @@ async def fetch_yahoo_earnings(tickers: list[str]) -> dict[str, str]:
             continue
 
         try:
-            earnings_date = await asyncio.to_thread(_fetch_single_ticker, symbol)
+            earnings_date = await asyncio.wait_for(
+                asyncio.to_thread(_fetch_single_ticker, symbol),
+                timeout=YAHOO_EARNINGS_TIMEOUT_SECONDS,
+            )
             if earnings_date:
                 earnings_by_ticker[symbol] = earnings_date
             else:
                 logger.info("No Yahoo earnings date available for %s", symbol)
+        except TimeoutError:
+            logger.warning("Timed out fetching Yahoo earnings date for %s", symbol)
         except Exception:
             logger.exception("Failed to fetch Yahoo earnings date for %s", symbol)
         finally:

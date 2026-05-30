@@ -1,11 +1,16 @@
 import json
 import logging
+import time
 
 import google.generativeai as genai
 
 from app.config import GEMINI_API_KEY
 
 logger = logging.getLogger(__name__)
+
+GEMINI_TIMEOUT_SECONDS = 10
+GEMINI_MAX_ATTEMPTS = 3
+GEMINI_RETRY_BACKOFF_SECONDS = 1
 
 
 def generate_news_summary(api_key: str, news_data: list[dict]) -> str:
@@ -29,8 +34,23 @@ def generate_news_summary(api_key: str, news_data: list[dict]) -> str:
 
     Return ONLY the formatted English bullet list. No titles, no introductions, no conclusions."""
 
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"• An error occurred while processing this morning's news. Error: {e}"
+    for attempt in range(1, GEMINI_MAX_ATTEMPTS + 1):
+        try:
+            response = model.generate_content(
+                prompt,
+                request_options={"timeout": GEMINI_TIMEOUT_SECONDS},
+            )
+            return response.text
+        except Exception as e:
+            if attempt == GEMINI_MAX_ATTEMPTS:
+                return f"• An error occurred while processing this morning's news. Error: {e}"
+
+            logger.warning(
+                "Gemini summary generation failed; retrying attempt %d/%d.",
+                attempt + 1,
+                GEMINI_MAX_ATTEMPTS,
+                exc_info=True,
+            )
+            time.sleep(GEMINI_RETRY_BACKOFF_SECONDS * attempt)
+
+    return "• An error occurred while processing this morning's news."

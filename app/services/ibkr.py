@@ -23,7 +23,8 @@ CURRENCY_SYMBOLS = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "ILS
 
 REFERENCE_WAIT_SECONDS = 3
 FETCH_MAX_ATTEMPTS = 3
-FETCH_BACKOFF_SECONDS = 180
+FETCH_BACKOFF_SECONDS = 5
+REQUEST_TIMEOUT_SECONDS = 10
 
 
 def _request_reference_code() -> str:
@@ -31,7 +32,7 @@ def _request_reference_code() -> str:
     url = f"{IBKR_BASE_URL}/SendRequest"
     params = {"t": IBKR_TOKEN, "q": IBKR_QUERY_ID, "v": 3}
 
-    response = requests.get(url, params=params, timeout=30)
+    response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
 
     root = ET.fromstring(response.text)
@@ -54,7 +55,7 @@ def _download_report(reference_code: str) -> str:
     url = f"{IBKR_BASE_URL}/GetStatement"
     params = {"t": IBKR_TOKEN, "q": reference_code, "v": 3}
 
-    response = requests.get(url, params=params, timeout=60)
+    response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
 
     return response.text

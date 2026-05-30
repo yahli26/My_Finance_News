@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
-from app.services.ibkr import parse_symbols, get_portfolio_tickers
+from app.services.ibkr import REQUEST_TIMEOUT_SECONDS, parse_symbols, get_portfolio_tickers
 
 # --- Sample XML fixtures ---
 
@@ -122,6 +122,8 @@ class TestGetPortfolioTickersHappyPath(unittest.TestCase):
 
         # Verify two HTTP calls were made
         self.assertEqual(mock_get.call_count, 2)
+        for call in mock_get.call_args_list:
+            self.assertEqual(call.kwargs["timeout"], REQUEST_TIMEOUT_SECONDS)
 
         # Verify sleep was called (the wait between steps)
         mock_sleep.assert_called_once()

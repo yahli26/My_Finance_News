@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -8,6 +9,9 @@ import requests
 logger = logging.getLogger(__name__)
 
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
+FINNHUB_TIMEOUT_SECONDS = 10
+FINNHUB_MAX_ATTEMPTS = 3
+FINNHUB_RETRY_BACKOFF_SECONDS = 1
 
 # US Eastern timezone (UTC-5 / UTC-4 DST). Earnings dates are aligned to
 # the US market calendar, so anchoring "today" to US/Eastern avoids the
@@ -55,6 +59,65 @@ def _article_key(article: dict) -> str:
     return f"fallback:{headline}|{source}|{published_at}"
 
 
+def _is_retryable_status(status_code: int) -> bool:
+    """Retry rate limits and server-side failures, but not ordinary client errors."""
+    return status_code == 429 or 500 <= status_code < 600
+
+
+def _fetch_ticker_news(api_key: str, ticker: str, from_date: str, today: str) -> list[dict]:
+    """Fetch one ticker with bounded retries for transient provider failures."""
+    for attempt in range(1, FINNHUB_MAX_ATTEMPTS + 1):
+        try:
+            response = requests.get(
+                f"{FINNHUB_BASE_URL}/company-news",
+                params={
+                    "symbol": ticker,
+                    "from": from_date,
+                    "to": today,
+                    "token": api_key,
+                },
+                timeout=FINNHUB_TIMEOUT_SECONDS,
+            )
+
+            status_code = getattr(response, "status_code", None)
+            if (
+                isinstance(status_code, int)
+                and _is_retryable_status(status_code)
+                and attempt < FINNHUB_MAX_ATTEMPTS
+            ):
+                logger.warning(
+                    "Finnhub returned %s for ticker '%s'; retrying attempt %d/%d.",
+                    status_code,
+                    ticker,
+                    attempt + 1,
+                    FINNHUB_MAX_ATTEMPTS,
+                )
+                time.sleep(FINNHUB_RETRY_BACKOFF_SECONDS * attempt)
+                continue
+
+            response.raise_for_status()
+            articles = response.json()
+            if not isinstance(articles, list):
+                logger.warning("Unexpected Finnhub payload for ticker '%s'; skipping.", ticker)
+                return []
+            return articles
+
+        except requests.RequestException:
+            if attempt == FINNHUB_MAX_ATTEMPTS:
+                raise
+
+            logger.warning(
+                "Failed to fetch Finnhub news for ticker '%s'; retrying attempt %d/%d.",
+                ticker,
+                attempt + 1,
+                FINNHUB_MAX_ATTEMPTS,
+                exc_info=True,
+            )
+            time.sleep(FINNHUB_RETRY_BACKOFF_SECONDS * attempt)
+
+    return []
+
+
 def _load_seen_news() -> dict[str, int]:
     """Load seen-article keys mapped to unix timestamps from disk."""
     if not os.path.exists(_SEEN_NEWS_CACHE_PATH):
@@ -99,18 +162,7 @@ def fetch_news(api_key: str, tickers: list[str]) -> list[dict]:
 
     for ticker in tickers:
         try:
-            response = requests.get(
-                f"{FINNHUB_BASE_URL}/company-news",
-                params={
-                    "symbol": ticker,
-                    "from": from_date,
-                    "to": today,
-                    "token": api_key,
-                },
-                timeout=30,
-            )
-            response.raise_for_status()
-            articles = response.json()
+            articles = _fetch_ticker_news(api_key, ticker, from_date, today)
         except requests.RequestException:
             logger.warning(
                 "Failed to fetch Finnhub news for ticker '%s'; skipping and continuing.",

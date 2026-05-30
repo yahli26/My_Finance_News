@@ -47,6 +47,16 @@ class TestYahooEarningsCache(unittest.TestCase):
 
         self.assertEqual(yahoo.get_earnings_cache(), {"PLTR": "2026-07-30"})
 
+    @patch("app.services.yahoo.asyncio.sleep", new_callable=AsyncMock)
+    @patch("app.services.yahoo.asyncio.to_thread", new_callable=AsyncMock)
+    def test_fetch_yahoo_earnings_skips_timed_out_symbol(self, mock_to_thread, mock_sleep):
+        mock_to_thread.side_effect = TimeoutError
+
+        result = asyncio.run(yahoo.fetch_yahoo_earnings(["PLTR"]))
+
+        self.assertEqual(result, {})
+        self.assertEqual(mock_sleep.await_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

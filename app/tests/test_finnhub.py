@@ -94,6 +94,35 @@ class TestFetchNews(unittest.TestCase):
         self.assertEqual(kwargs["params"]["from"], "2026-03-14")
         self.assertEqual(kwargs["params"]["to"], "2026-03-15")
 
+    @patch("app.services.finnhub.time.sleep", return_value=None)
+    @patch("app.services.finnhub._save_seen_news")
+    @patch("app.services.finnhub._load_seen_news", return_value={})
+    @patch("app.services.finnhub.requests.get")
+    def test_retries_retryable_server_error(
+        self,
+        mock_get,
+        _mock_load_seen,
+        _mock_save_seen,
+        mock_sleep,
+    ):
+        """Transient server errors are retried before a ticker is skipped."""
+        server_error = MagicMock()
+        server_error.status_code = 503
+        server_error.raise_for_status.side_effect = HTTPError(response=MagicMock(status_code=503))
+
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+        ok_response.json.return_value = [dict(a) for a in FLNC_NEWS]
+        ok_response.raise_for_status = MagicMock()
+
+        mock_get.side_effect = [server_error, ok_response]
+
+        result = fetch_news(DUMMY_API_KEY, ["FLNC"])
+
+        self.assertEqual(mock_get.call_count, 2)
+        mock_sleep.assert_called_once()
+        self.assertEqual(len(result), 1)
+
     @patch("app.services.finnhub._save_seen_news")
     @patch("app.services.finnhub._load_seen_news")
     @patch("app.services.finnhub.requests.get")
@@ -111,17 +140,30 @@ class TestFetchNews(unittest.TestCase):
 
         self.assertEqual(len(result), 0)
 
+    @patch("app.services.finnhub.time.sleep", return_value=None)
+    @patch("app.services.finnhub._save_seen_news")
+    @patch("app.services.finnhub._load_seen_news", return_value={})
     @patch("app.services.finnhub.requests.get")
-    def test_news_http_error_propagates(self, mock_get):
-        """An HTTP error from the API is raised, not silently swallowed."""
+    def test_news_http_error_skips_ticker_after_retries(
+        self,
+        mock_get,
+        _mock_load_seen,
+        _mock_save_seen,
+        mock_sleep,
+    ):
+        """Repeated HTTP failures are logged and skipped instead of crashing the job."""
         mock_response = MagicMock()
+        mock_response.status_code = 429
         mock_response.raise_for_status.side_effect = HTTPError(
             response=MagicMock(status_code=429)
         )
         mock_get.return_value = mock_response
 
-        with self.assertRaises(HTTPError):
-            fetch_news(DUMMY_API_KEY, ["PLTR"])
+        result = fetch_news(DUMMY_API_KEY, ["PLTR"])
+
+        self.assertEqual(result, [])
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import time, timezone
 
 import uvicorn
@@ -26,6 +27,18 @@ logger = logging.getLogger(__name__)
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 
+def _log_background_task_result(task: asyncio.Task) -> None:
+    """Log background task failures so startup work never fails silently."""
+    if task.cancelled():
+        logger.info("Background task %s was cancelled.", task.get_name())
+        return
+
+    try:
+        task.result()
+    except Exception:
+        logger.exception("Background task %s failed.", task.get_name())
+
+
 # ---------------------------------------------------------------------------
 # FastAPI lifespan: start / stop the bot around the server process
 # ---------------------------------------------------------------------------
@@ -48,10 +61,19 @@ async def lifespan(app: FastAPI):
 
     await bot_app.initialize()
     await bot_app.start()
-    await refresh_earnings_cache_job(None)
+    startup_refresh_task = asyncio.create_task(
+        refresh_earnings_cache_job(None),
+        name="initial_earnings_cache_refresh",
+    )
+    startup_refresh_task.add_done_callback(_log_background_task_result)
     logger.info("Telegram bot started.")
 
     yield  # server is live
+
+    if not startup_refresh_task.done():
+        startup_refresh_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await startup_refresh_task
 
     await bot_app.stop()
     await bot_app.shutdown()
