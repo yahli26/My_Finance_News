@@ -4,6 +4,7 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 
+from app.bot.jobs import send_morning_news
 from app.config import TELEGRAM_CHAT_ID
 from app.services.yahoo import get_earnings_cache
 
@@ -44,8 +45,27 @@ async def _earnings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Failed to read earnings cache. Check server logs.")
 
 
+async def _test_daily_news_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manually trigger the scheduled morning-news flow from Telegram."""
+    sender_id = update.effective_chat.id
+    if sender_id != TELEGRAM_CHAT_ID:
+        logger.warning("Unauthorized test command attempt from chat %s", sender_id)
+        return
+
+    logger.info("Test daily-news command received from chat %s", sender_id)
+    await update.message.reply_text("Loading daily news...")
+    await send_morning_news(context)
+
+
 # Matches any message whose full text (case-insensitive) is "reports" or "earnings"
 earnings_handler = MessageHandler(
     filters.TEXT & filters.Regex(r"(?i)^\s*(reports?|earnings?)\s*$"),
     _earnings_callback,
+)
+
+
+# Matches any message whose full text (case-insensitive) is "test"
+test_daily_news_handler = MessageHandler(
+    filters.TEXT & filters.Regex(r"(?i)^\s*test\s*$"),
+    _test_daily_news_callback,
 )

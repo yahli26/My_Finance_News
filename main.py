@@ -9,7 +9,7 @@ from telegram import Update
 from telegram.ext import Application
 
 from app.config import TELEGRAM_TOKEN
-from app.bot.handlers import earnings_handler
+from app.bot.handlers import earnings_handler, test_daily_news_handler
 from app.bot.jobs import refresh_earnings_cache_job, send_morning_news
 
 logging.basicConfig(
@@ -46,6 +46,7 @@ def _log_background_task_result(task: asyncio.Task) -> None:
 async def lifespan(app: FastAPI):
     # Register message handlers
     bot_app.add_handler(earnings_handler)
+    bot_app.add_handler(test_daily_news_handler)
 
     # Schedule the daily morning-news digest at 05:29 IST (= 03:29 UTC)
     bot_app.job_queue.run_daily(
