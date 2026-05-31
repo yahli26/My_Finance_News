@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 
 from app.config import FINNHUB_API_KEY, GEMINI_API_KEY, TELEGRAM_CHAT_ID
 from app.services.finnhub import fetch_news
-from app.services.gemini import generate_news_summary
+from app.services.gemini import GeminiSummaryError, generate_news_summary
 from app.services.ibkr import get_portfolio_tickers
 from app.services.yahoo import update_earnings_cache
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 PORTFOLIO_FETCH_TIMEOUT_SECONDS = 90
 EARNINGS_CACHE_REFRESH_TIMEOUT_SECONDS = 180
 NEWS_FETCH_TIMEOUT_SECONDS = 120
-NEWS_SUMMARY_TIMEOUT_SECONDS = 45
+NEWS_SUMMARY_TIMEOUT_SECONDS = 240
 TELEGRAM_SEND_TIMEOUT_SECONDS = 15
 
 
@@ -31,6 +31,14 @@ async def _send_message(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     await asyncio.wait_for(
         context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text),
         timeout=TELEGRAM_SEND_TIMEOUT_SECONDS,
+    )
+
+
+def _summary_unavailable_message(tickers: list[str]) -> str:
+    tracked = ", ".join(tickers) if tickers else "unavailable"
+    return (
+        "⚠️ AI Summary unavailable today due to high server load.\n\n"
+        f"Current tracked portfolio: {tracked}"
     )
 
 
@@ -79,10 +87,16 @@ async def send_morning_news(context: ContextTypes.DEFAULT_TYPE) -> None:
             await _send_message(context, "• No portfolio news found for today.")
             return
 
-        summary = await asyncio.wait_for(
-            asyncio.to_thread(generate_news_summary, GEMINI_API_KEY, news_data),
-            timeout=NEWS_SUMMARY_TIMEOUT_SECONDS,
-        )
+        try:
+            summary = await asyncio.wait_for(
+                asyncio.to_thread(generate_news_summary, GEMINI_API_KEY, news_data),
+                timeout=NEWS_SUMMARY_TIMEOUT_SECONDS,
+            )
+        except (GeminiSummaryError, TimeoutError):
+            logger.exception("Gemini news summary unavailable.")
+            await _send_message(context, _summary_unavailable_message(tickers))
+            return
+
         await _send_message(context, summary)
         logger.info("Morning news sent successfully.")
 
