@@ -38,6 +38,18 @@ def _group_news_by_ticker(news_data: list[dict]) -> dict[str, list[dict]]:
     return dict(grouped)
 
 
+def _company_label(article: dict, ticker: str) -> str:
+    """Return a readable company label, falling back to the ticker symbol."""
+    for key in ("companyName", "company_name", "company", "name"):
+        raw_name = article.get(key)
+        if raw_name:
+            company_name = str(raw_name).strip()
+            if company_name and company_name.upper() != ticker:
+                return f"{company_name} ({ticker})"
+
+    return ticker
+
+
 def _build_prompt(news_data: list[dict]) -> str:
     news_text = json.dumps(news_data, ensure_ascii=False, indent=2)
     return f"""\
@@ -91,12 +103,11 @@ def generate_news_summary(api_key: str, news_data: list[dict]) -> str:
     summaries: list[str] = []
 
     for batch_index, ticker_batch in enumerate(ticker_batches):
-        batch_news = [
-            article
-            for ticker in ticker_batch
-            for article in grouped_news[ticker]
-        ]
-        summaries.append(_generate_batch_summary(model, batch_news))
+        for ticker in ticker_batch:
+            company_news = grouped_news[ticker]
+            company_heading = _company_label(company_news[0], ticker)
+            company_summary = _generate_batch_summary(model, company_news)
+            summaries.append(f"{company_heading}\n{company_summary}")
 
         if batch_index < len(ticker_batches) - 1:
             time.sleep(GEMINI_BATCH_DELAY_SECONDS)

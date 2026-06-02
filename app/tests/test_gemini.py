@@ -17,11 +17,14 @@ class TestGenerateNewsSummary(unittest.TestCase):
     @patch("app.services.gemini.time.sleep", return_value=None)
     @patch("app.services.gemini.genai.GenerativeModel")
     @patch("app.services.gemini.genai.configure")
-    def test_splits_news_into_ticker_batches(self, mock_configure, mock_model_cls, mock_sleep):
+    def test_formats_news_as_company_sections(self, mock_configure, mock_model_cls, mock_sleep):
         model = MagicMock()
         model.generate_content.side_effect = [
-            MagicMock(text="• First batch summary"),
-            MagicMock(text="• Second batch summary"),
+            MagicMock(text="• ADTN summary"),
+            MagicMock(text="• AMPX summary"),
+            MagicMock(text="• AMZN summary"),
+            MagicMock(text="• APP summary"),
+            MagicMock(text="• COHR summary"),
         ]
         mock_model_cls.return_value = model
 
@@ -29,8 +32,22 @@ class TestGenerateNewsSummary(unittest.TestCase):
 
         result = generate_news_summary("api-key", news_data)
 
-        self.assertEqual(result, "• First batch summary\n\n• Second batch summary")
-        self.assertEqual(model.generate_content.call_count, 2)
+        self.assertEqual(
+            result,
+            (
+                "ADTN\n"
+                "• ADTN summary\n\n"
+                "AMPX\n"
+                "• AMPX summary\n\n"
+                "AMZN\n"
+                "• AMZN summary\n\n"
+                "APP\n"
+                "• APP summary\n\n"
+                "COHR\n"
+                "• COHR summary"
+            ),
+        )
+        self.assertEqual(model.generate_content.call_count, 5)
         self.assertEqual(
             model.generate_content.call_args_list[0].kwargs["request_options"]["timeout"],
             gemini.GEMINI_TIMEOUT_SECONDS,
@@ -51,6 +68,42 @@ class TestGenerateNewsSummary(unittest.TestCase):
 
         self.assertEqual(model.generate_content.call_count, gemini.GEMINI_MAX_ATTEMPTS)
         self.assertEqual(mock_sleep.call_count, gemini.GEMINI_MAX_ATTEMPTS - 1)
+
+    @patch("app.services.gemini.time.sleep", return_value=None)
+    @patch("app.services.gemini.genai.GenerativeModel")
+    @patch("app.services.gemini.genai.configure")
+    def test_company_section_heading_uses_company_name_when_available(
+        self,
+        _mock_configure,
+        mock_model_cls,
+        _mock_sleep,
+    ):
+        model = MagicMock()
+        model.generate_content.side_effect = [
+            MagicMock(text="• ADTN summary"),
+            MagicMock(text="• AMPX summary"),
+        ]
+        mock_model_cls.return_value = model
+
+        news_data = [
+            {
+                **_article("ADTN"),
+                "companyName": "ADTRAN Holdings Inc",
+            },
+            _article("AMPX"),
+        ]
+
+        result = generate_news_summary("api-key", news_data)
+
+        self.assertEqual(
+            result,
+            (
+                "ADTRAN Holdings Inc (ADTN)\n"
+                "• ADTN summary\n\n"
+                "AMPX\n"
+                "• AMPX summary"
+            ),
+        )
 
 
 if __name__ == "__main__":
