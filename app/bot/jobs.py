@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from app.config import FINNHUB_API_KEY, GEMINI_API_KEY, TELEGRAM_CHAT_ID
@@ -16,6 +17,68 @@ EARNINGS_CACHE_REFRESH_TIMEOUT_SECONDS = 180
 NEWS_FETCH_TIMEOUT_SECONDS = 120
 NEWS_SUMMARY_TIMEOUT_SECONDS = 240
 TELEGRAM_SEND_TIMEOUT_SECONDS = 15
+TELEGRAM_MAX_MESSAGE_LENGTH = 4096
+TELEGRAM_SAFE_MESSAGE_LENGTH = 3900
+
+
+def _split_oversized_block(block: str, max_length: int) -> list[str]:
+    """Split text that cannot fit by paragraph boundaries."""
+    chunks: list[str] = []
+    current = ""
+
+    for line in block.splitlines(keepends=True):
+        if len(line) > max_length:
+            if current:
+                chunks.append(current.rstrip())
+                current = ""
+
+            for start in range(0, len(line), max_length):
+                chunk = line[start : start + max_length].rstrip()
+                if chunk:
+                    chunks.append(chunk)
+            continue
+
+        candidate = current + line
+        if len(candidate) > max_length and current:
+            chunks.append(current.rstrip())
+            current = line
+        else:
+            current = candidate
+
+    if current.strip():
+        chunks.append(current.rstrip())
+
+    return chunks
+
+
+def _split_message(text: str, max_length: int = TELEGRAM_SAFE_MESSAGE_LENGTH) -> list[str]:
+    """Split a Telegram message into chunks below the platform limit."""
+    if len(text) <= max_length:
+        return [text]
+
+    chunks: list[str] = []
+    current = ""
+
+    for paragraph in text.split("\n\n"):
+        separator = "\n\n" if current else ""
+        candidate = f"{current}{separator}{paragraph}"
+        if len(candidate) <= max_length:
+            current = candidate
+            continue
+
+        if current:
+            chunks.append(current.rstrip())
+            current = ""
+
+        if len(paragraph) <= max_length:
+            current = paragraph
+        else:
+            chunks.extend(_split_oversized_block(paragraph, max_length))
+
+    if current.strip():
+        chunks.append(current.rstrip())
+
+    return chunks
 
 
 async def _get_portfolio_tickers() -> list[str]:
@@ -28,10 +91,24 @@ async def _get_portfolio_tickers() -> list[str]:
 
 async def _send_message(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     """Send Telegram messages with a bound so error handling cannot hang."""
-    await asyncio.wait_for(
-        context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text),
-        timeout=TELEGRAM_SEND_TIMEOUT_SECONDS,
+    message_chunks = _split_message(text)
+    logger.info(
+        "Sending Telegram message in %s chunk(s), original length=%s.",
+        len(message_chunks),
+        len(text),
     )
+
+    for chunk_index, chunk in enumerate(message_chunks, start=1):
+        logger.info(
+            "Sending Telegram message chunk %s/%s, length=%s.",
+            chunk_index,
+            len(message_chunks),
+            len(chunk),
+        )
+        await asyncio.wait_for(
+            context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=chunk),
+            timeout=TELEGRAM_SEND_TIMEOUT_SECONDS,
+        )
 
 
 def _summary_unavailable_message(tickers: list[str]) -> str:
@@ -97,7 +174,22 @@ async def send_morning_news(context: ContextTypes.DEFAULT_TYPE) -> None:
             await _send_message(context, _summary_unavailable_message(tickers))
             return
 
-        await _send_message(context, summary)
+        try:
+            await _send_message(context, summary)
+        except (TelegramError, TimeoutError):
+            logger.exception(
+                "Morning news summary delivery failed, length=%s.",
+                len(summary),
+            )
+            try:
+                await _send_message(
+                    context,
+                    "• Morning news summary was generated but could not be delivered.",
+                )
+            except Exception:
+                logger.exception("Failed to send morning-news delivery failure notification.")
+            return
+
         logger.info("Morning news sent successfully.")
 
     except TimeoutError:

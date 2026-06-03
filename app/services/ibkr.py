@@ -113,9 +113,10 @@ def get_portfolio_tickers() -> list[str]:
             exc_info=True,
         )
         if exc.last_attempt.failed:
+            cause = exc.last_attempt.exception()
             raise RuntimeError(
-                f"IBKR portfolio fetch failed after {FETCH_MAX_ATTEMPTS} attempts"
-            ) from exc.last_attempt.exception()
+                f"IBKR portfolio fetch failed after {FETCH_MAX_ATTEMPTS} attempts: {cause}"
+            ) from cause
         raise RuntimeError(
             f"IBKR portfolio fetch failed after {FETCH_MAX_ATTEMPTS} attempts due to empty data"
         ) from exc
